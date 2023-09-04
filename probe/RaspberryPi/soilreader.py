@@ -39,7 +39,7 @@ if serial_port.isOpen() != True:
 while True:
 	# assume format: $<device id>,<temperature>,<moisture>,<pH>\n
 	data_list = None
-	while data_list == None:
+	while data_list is None:
 		data = serial_port.readline()
 #		print data
 		data_list = string.split(data, ',')

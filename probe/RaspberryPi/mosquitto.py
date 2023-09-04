@@ -29,6 +29,7 @@
 This is an MQTT v3.1 client module. MQTT is a lightweight pub/sub messaging
 protocol that is easy to implement and suitable for low powered devices.
 """
+
 import errno
 import random
 import select
@@ -39,11 +40,7 @@ import sys
 import threading
 import time
 
-if sys.version_info[0] < 3:
-    PROTOCOL_NAME = "MQIsdp"
-else:
-    PROTOCOL_NAME = b"MQIsdp"
-
+PROTOCOL_NAME = "MQIsdp" if sys.version_info[0] < 3 else b"MQIsdp"
 PROTOCOL_VERSION = 3
 
 # Message types 
@@ -196,31 +193,24 @@ def topic_matches_sub(sub, topic):
         if local_sub[spos] == local_topic[tpos]:
             spos += 1
             tpos += 1
-        else:
-            if local_sub[spos] == '+':
-                spos += 1
-                while tpos < tlen and local_topic[tpos] != '/':
-                    tpos += 1
-                if tpos == tlen and spos == slen:
-                    result = True
-                    break
-
-            elif local_sub[spos] == '#':
-                multilevel_wildcard = True
-                if spos+1 != slen:
-                    result = False
-                    break
-                else:
-                    result = True
-                    break
-
-            else:
-                result = False
+        elif local_sub[spos] == '+':
+            spos += 1
+            while tpos < tlen and local_topic[tpos] != '/':
+                tpos += 1
+            if tpos == tlen and spos == slen:
+                result = True
                 break
 
-        if tpos == tlen-1:
-            # Check for e.g. foo matching foo/#
-            if spos == slen-3 and local_sub[spos+1] == '/' and local_sub[spos+2] == '#':
+        elif local_sub[spos] == '#':
+            multilevel_wildcard = True
+            result = spos+1 == slen
+            break
+        else:
+            result = False
+            break
+
+        if spos == slen-3 and local_sub[spos+1] == '/' and local_sub[spos+2] == '#':
+            if tpos == tlen-1:
                 result = True
                 multilevel_wildcard = True
                 break
@@ -381,7 +371,7 @@ class Mosquitto:
         parameter to callbacks. It may be updated at a later point with the
         user_data_set() function.
         """
-        if clean_session == False and (client_id == "" or client_id == None):
+        if clean_session == False and (client_id == "" or client_id is None):
             raise ValueError('A client id must be provided if clean session is False.')
 
         self._userdata = userdata
@@ -391,7 +381,9 @@ class Mosquitto:
         self._last_retry_check = 0
         self._clean_session = clean_session
         if client_id == "":
-            self._client_id = "mosq/" + "".join(random.choice("0123456789ADCDEF") for x in range(23-5))
+            self._client_id = "mosq/" + "".join(
+                random.choice("0123456789ADCDEF") for _ in range(23 - 5)
+            )
         else:
             self._client_id = client_id
 
@@ -487,27 +479,27 @@ class Mosquitto:
         if sys.version < '2.7':
             raise ValueError('Python 2.7 is the minimum supported version for TLS.')
 
-        if ca_certs == None:
+        if ca_certs is None:
             raise ValueError('ca_certs must not be None.')
 
         try:
             f = open(ca_certs, "r")
         except IOError as err:
-            raise IOError(ca_certs+": "+err.strerror)
+            raise IOError(f"{ca_certs}: {err.strerror}")
         else:
             f.close()
         if certfile != None:
             try:
                 f = open(certfile, "r")
             except IOError as err:
-                raise IOError(certfile+": "+err.strerror)
+                raise IOError(f"{certfile}: {err.strerror}")
             else:
                 f.close()
         if keyfile != None:
             try:
                 f = open(keyfile, "r")
             except IOError as err:
-                raise IOError(keyfile+": "+err.strerror)
+                raise IOError(f"{keyfile}: {err.strerror}")
             else:
                 f.close()
 
@@ -545,7 +537,7 @@ class Mosquitto:
         broker. If no other messages are being exchanged, this controls the
         rate at which the client will send ping messages to the broker.
         """
-        if host == None or len(host) == 0:
+        if host is None or len(host) == 0:
             raise ValueError('Invalid host.')
         if port <= 0:
             raise ValueError('Invalid port number.')
@@ -649,13 +641,10 @@ class Mosquitto:
 
         self._current_out_packet_mutex.acquire()
         self._out_packet_mutex.acquire()
-        if self._current_out_packet == None and len(self._out_packet) > 0:
+        if self._current_out_packet is None and len(self._out_packet) > 0:
             self._current_out_packet = self._out_packet.pop(0)
 
-        if self._current_out_packet:
-            wlist = [self.socket()]
-        else:
-            wlist = []
+        wlist = [self.socket()] if self._current_out_packet else []
         self._out_packet_mutex.release()
         self._current_out_packet_mutex.release()
 
@@ -667,13 +656,17 @@ class Mosquitto:
             return MOSQ_ERR_CONN_LOST
 
         if self.socket() in socklist[0]:
-            rc = self.loop_read(max_packets)
-            if rc or (self._ssl == None and self._sock == None):
+            if rc := self.loop_read(max_packets):
+                return rc
+
+            elif self._ssl is None and self._sock is None:
                 return rc
 
         if self.socket() in socklist[1]:
-            rc = self.loop_write(max_packets)
-            if rc or (self._ssl == None and self._sock == None):
+            if rc := self.loop_write(max_packets):
+                return rc
+
+            elif self._ssl is None and self._sock is None:
                 return rc
 
         return self.loop_misc()
@@ -703,15 +696,15 @@ class Mosquitto:
         A ValueError will be raised if topic == None, has zero length or is
         invalid (contains a wildcard), if qos is not one of 0, 1 or 2, or if
         the length of the payload is greater than 268435455 bytes."""
-        if topic == None or len(topic) == 0:
+        if topic is None or len(topic) == 0:
             raise ValueError('Invalid topic.')
         if qos<0 or qos>2:
             raise ValueError('Invalid QoS level.')
-        if isinstance(payload, str) == True or isinstance(payload, bytearray) == True:
+        if isinstance(payload, (str, bytearray)):
             local_payload = payload
-        elif isinstance(payload, int) == True or isinstance(payload, float) == True:
+        elif isinstance(payload, (int, float)):
             local_payload = str(payload)
-        elif payload == None:
+        elif payload is None:
             local_payload = None
         else:
             raise TypeError('payload must be a string, bytearray, int, float or None.')
@@ -726,7 +719,6 @@ class Mosquitto:
 
         if qos == 0:
             rc = self._send_publish(local_mid, topic, local_payload, qos, retain, False)
-            return (rc, local_mid)
         else:
             message = MosquittoMessage()
             message.timestamp = time.time()
@@ -738,7 +730,7 @@ class Mosquitto:
 
             message.mid = local_mid
             message.topic = topic
-            if local_payload == None or len(local_payload) == 0:
+            if local_payload is None or len(local_payload) == 0:
                 message.payload = None
             else:
                 message.payload = local_payload
@@ -749,7 +741,8 @@ class Mosquitto:
 
             self._messages.append(message)
             rc = self._send_publish(message.mid, message.topic, message.payload, message.qos, message.retain, message.dup)
-            return (rc, local_mid)
+
+        return (rc, local_mid)
 
     def username_pw_set(self, username, password=None):
         """Set a username and optionally a password for broker authentication.
@@ -765,7 +758,7 @@ class Mosquitto:
 
     def disconnect(self):
         """Disconnect a connected client from the broker."""
-        if self._sock == None and self._ssl == None:
+        if self._sock is None and self._ssl is None:
             return MOSQ_ERR_NO_CONN
 
         self._state_mutex.acquire()
@@ -791,11 +784,11 @@ class Mosquitto:
         """
         if qos<0 or qos>2:
             raise ValueError('Invalid QoS level.')
-        if topic == None or len(topic) == 0:
+        if topic is None or len(topic) == 0:
             raise ValueError('Invalid topic.')
         topic = _fix_sub_topic(topic)
 
-        if self._sock == None and self._ssl == None:
+        if self._sock is None and self._ssl is None:
             return MOSQ_ERR_NO_CONN
 
         return self._send_subscribe(False, topic, qos)
@@ -813,10 +806,10 @@ class Mosquitto:
 
         Raises a ValueError if topic is None or has zero string length.
         """
-        if topic == None or len(topic) == 0:
+        if topic is None or len(topic) == 0:
             raise ValueError('Invalid topic.')
         topic = _fix_sub_topic(topic)
-        if self._sock == None and self._ssl == None:
+        if self._sock is None and self._ssl is None:
             return MOSQ_ERR_NO_CONN
 
         return self._send_unsubscribe(False, topic)
@@ -829,14 +822,12 @@ class Mosquitto:
         on.
         
         Do not use if you are using the threaded interface loop_start()."""
-        if self._sock == None and self._ssl == None:
+        if self._sock is None and self._ssl is None:
             return MOSQ_ERR_NO_CONN
 
         max_packets = len(self._messages)
-        if max_packets < 1:
-            max_packets = 1
-
-        for i in range(0, max_packets):
+        max_packets = max(max_packets, 1)
+        for _ in range(0, max_packets):
             rc = self._packet_read()
             if rc > 0:
                 return self._loop_rc_handle(rc)
@@ -854,14 +845,12 @@ class Mosquitto:
         Use want_write() to determine if there is data waiting to be written.
 
         Do not use if you are using the threaded interface loop_start()."""
-        if self._sock == None and self._ssl == None:
+        if self._sock is None and self._ssl is None:
             return MOSQ_ERR_NO_CONN
 
         max_packets = len(self._messages)
-        if max_packets < 1:
-            max_packets = 1
-
-        for i in range(0, max_packets):
+        max_packets = max(max_packets, 1)
+        for _ in range(0, max_packets):
             rc = self._packet_write()
             if rc > 0:
                 return self._loop_rc_handle(rc)
@@ -873,17 +862,14 @@ class Mosquitto:
         """Call to determine if there is network data waiting to be written.
         Useful if you are calling select() yourself rather than using loop().
         """
-        if self._current_out_packet or len(self._out_packet) > 0:
-            return True
-        else:
-            return False
+        return bool(self._current_out_packet or len(self._out_packet) > 0)
 
     def loop_misc(self):
         """Process miscellaneous network events. Use in place of calling loop() if you
         wish to call select() or equivalent on.
 
         Do not use if you are using the threaded interface loop_start()."""
-        if self._sock == None and self._ssl == None:
+        if self._sock is None and self._ssl is None:
             return MOSQ_ERR_NO_CONN
 
         now = time.time()
@@ -904,10 +890,7 @@ class Mosquitto:
                 self._sock = None
 
             self._callback_mutex.acquire()
-            if self._state == mosq_cs_disconnecting:
-                rc = MOSQ_ERR_SUCCESS
-            else:
-                rc = 1
+            rc = MOSQ_ERR_SUCCESS if self._state == mosq_cs_disconnecting else 1
             if self.on_disconnect:
                 self._in_callback = True
                 self.on_disconnect(self, self._userdata, rc)
@@ -947,15 +930,15 @@ class Mosquitto:
         Raises a ValueError if qos is not 0, 1 or 2, or if topic is None or has
         zero string length.
         """
-        if topic == None or len(topic) == 0:
+        if topic is None or len(topic) == 0:
             raise ValueError('Invalid topic.')
         if qos<0 or qos>2:
             raise ValueError('Invalid QoS level.')
-        if isinstance(payload, str) == True or isinstance(payload, bytearray) == True:
+        if isinstance(payload, (str, bytearray)):
             self._will_payload = payload
-        elif isinstance(payload, int) == True or isinstance(payload, float) == True:
+        elif isinstance(payload, (int, float)):
             self._will_payload = str(payload)
-        elif payload == None:
+        elif payload is None:
             self._will_payload = None
         else:
             raise TypeError('payload must be a string, bytearray, int, float or None.')
@@ -977,10 +960,7 @@ class Mosquitto:
 
     def socket(self):
         """Return the socket or ssl object for this client."""
-        if self._ssl:
-            return self._ssl
-        else:
-            return self._sock
+        return self._ssl if self._ssl else self._sock
 
     def loop_forever(self, timeout=1.0, max_packets=1):
         """This function call loop() for you in an infinite blocking loop. It
@@ -994,7 +974,7 @@ class Mosquitto:
         if self._state == mosq_cs_connect_async:
             self.reconnect()
 
-        while run == True:
+        while run:
             rc = MOSQ_ERR_SUCCESS
             while rc == MOSQ_ERR_SUCCESS:
                 rc = self.loop(timeout, max_packets)
@@ -1025,7 +1005,7 @@ class Mosquitto:
 
         The force parameter is currently ignored.
         """
-        if self._thread == None:
+        if self._thread is None:
             return MOSQ_ERR_INVAL
 
         self._thread_terminate = True
@@ -1074,13 +1054,13 @@ class Mosquitto:
         # Finally, free the memory and reset everything to starting conditions.
         if self._in_packet.command == 0:
             try:
-                if self._ssl:
-                    command = self._ssl.read(1)
-                else:
-                    command = self._sock.recv(1)
+                command = self._ssl.read(1) if self._ssl else self._sock.recv(1)
             except socket.error as err:
                 (msg) = err
-                if self._ssl and (msg.errno == ssl.SSL_ERROR_WANT_READ or msg.errno == ssl.SSL_ERROR_WANT_WRITE):
+                if self._ssl and msg.errno in [
+                    ssl.SSL_ERROR_WANT_READ,
+                    ssl.SSL_ERROR_WANT_WRITE,
+                ]:
                     return MOSQ_ERR_AGAIN
                 if msg.errno == errno.EAGAIN:
                     return MOSQ_ERR_AGAIN
@@ -1098,13 +1078,13 @@ class Mosquitto:
             # http://publib.boulder.ibm.com/infocenter/wmbhelp/v6r0m0/topic/com.ibm.etools.mft.doc/ac10870_.htm
             while True:
                 try:
-                    if self._ssl:
-                        byte = self._ssl.read(1)
-                    else:
-                        byte = self._sock.recv(1)
+                    byte = self._ssl.read(1) if self._ssl else self._sock.recv(1)
                 except socket.error as err:
                     (msg) = err
-                    if self._ssl and (msg.errno == ssl.SSL_ERROR_WANT_READ or msg.errno == ssl.SSL_ERROR_WANT_WRITE):
+                    if self._ssl and msg.errno in [
+                        ssl.SSL_ERROR_WANT_READ,
+                        ssl.SSL_ERROR_WANT_WRITE,
+                    ]:
                         return MOSQ_ERR_AGAIN
                     if msg.errno == errno.EAGAIN:
                         return MOSQ_ERR_AGAIN
@@ -1136,7 +1116,10 @@ class Mosquitto:
                     data = self._sock.recv(self._in_packet.to_process)
             except socket.error as err:
                 (msg) = err
-                if self._ssl and (msg.errno == ssl.SSL_ERROR_WANT_READ or msg.errno == ssl.SSL_ERROR_WANT_WRITE):
+                if self._ssl and msg.errno in [
+                    ssl.SSL_ERROR_WANT_READ,
+                    ssl.SSL_ERROR_WANT_WRITE,
+                ]:
                     return MOSQ_ERR_AGAIN
                 if msg.errno == errno.EAGAIN:
                     return MOSQ_ERR_AGAIN
@@ -1175,7 +1158,10 @@ class Mosquitto:
             except socket.error as err:
                 self._current_out_packet_mutex.release()
                 (msg) = err
-                if self._ssl and (msg.errno == ssl.SSL_ERROR_WANT_READ or msg.errno == ssl.SSL_ERROR_WANT_WRITE):
+                if self._ssl and msg.errno in [
+                    ssl.SSL_ERROR_WANT_READ,
+                    ssl.SSL_ERROR_WANT_WRITE,
+                ]:
                     return MOSQ_ERR_AGAIN
                 if msg.errno == errno.EAGAIN:
                     return MOSQ_ERR_AGAIN
@@ -1202,9 +1188,6 @@ class Mosquitto:
                     else:
                         self._current_out_packet = None
                     self._out_packet_mutex.release()
-            else:
-                pass # FIXME
-        
         self._current_out_packet_mutex.release()
 
         self._msgtime_mutex.acquire()
@@ -1238,10 +1221,7 @@ class Mosquitto:
                     self._sock.close()
                     self._sock = None
 
-                if self._state == mosq_cs_disconnecting:
-                    rc = MOSQ_ERR_SUCCESS
-                else:
-                    rc = 1
+                rc = MOSQ_ERR_SUCCESS if self._state == mosq_cs_disconnecting else 1
                 self._callback_mutex.acquire()
                 if self.on_disconnect:
                     self._in_callback = True
@@ -1276,11 +1256,11 @@ class Mosquitto:
         return self._send_simple_command(PINGRESP)
 
     def _send_puback(self, mid):
-        self._easy_log(MOSQ_LOG_DEBUG, "Sending PUBACK (Mid: "+str(mid)+")")
+        self._easy_log(MOSQ_LOG_DEBUG, f"Sending PUBACK (Mid: {str(mid)})")
         return self._send_command_with_mid(PUBACK, mid, False)
 
     def _send_pubcomp(self, mid):
-        self._easy_log(MOSQ_LOG_DEBUG, "Sending PUBCOMP (Mid: "+str(mid)+")")
+        self._easy_log(MOSQ_LOG_DEBUG, f"Sending PUBCOMP (Mid: {str(mid)})")
         return self._send_command_with_mid(PUBCOMP, mid, False)
 
     def _pack_remaining_length(self, packet, remaining_length):
@@ -1304,24 +1284,23 @@ class Mosquitto:
                 packet.extend(struct.pack("!H", len(data)))
                 packet.extend(data)
             elif isinstance(data, str):
-                pack_format = "!H" + str(len(data)) + "s"
+                pack_format = f"!H{len(data)}s"
                 packet.extend(struct.pack(pack_format, len(data), data))
             elif isinstance(data, unicode):
                 udata = data.encode('utf-8')
-                pack_format = "!H" + str(len(udata)) + "s"
+                pack_format = f"!H{len(udata)}s"
                 packet.extend(struct.pack(pack_format, len(udata), udata))
             else:
                 raise TypeError
+        elif isinstance(data, bytearray):
+            packet.extend(struct.pack("!H", len(data)))
+            packet.extend(data)
+        elif isinstance(data, str):
+            udata = data.encode('utf-8')
+            pack_format = f"!H{len(udata)}s"
+            packet.extend(struct.pack(pack_format, len(udata), udata))
         else:
-            if isinstance(data, bytearray):
-                packet.extend(struct.pack("!H", len(data)))
-                packet.extend(data)
-            elif isinstance(data, str):
-                udata = data.encode('utf-8')
-                pack_format = "!H" + str(len(udata)) + "s"
-                packet.extend(struct.pack(pack_format, len(udata), udata))
-            else:
-                raise TypeError
+            raise TypeError
 
     def _send_publish(self, mid, topic, payload=None, qos=0, retain=False, dup=False):
         if self._sock == None and self._ssl == None:
